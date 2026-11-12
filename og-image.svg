@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" fill="none">
+  <rect width="1200" height="630" fill="#ffffff"/>
+  <rect x="60" y="50" width="1080" height="530" rx="44" fill="#ffffff" stroke="#bae6fd" stroke-width="4"/>
+  <path d="M40 165 C 340 40, 700 210, 1160 75" stroke="#bae6fd" stroke-width="18" stroke-linecap="round"/>
+  <path d="M55 135 C 400 205, 800 35, 1150 125" stroke="#38bdf8" stroke-width="10" stroke-linecap="round"/>
+  <path d="M80 105 C 440 25, 760 185, 1130 90" stroke="#1d4ed8" stroke-width="5" stroke-linecap="round"/>
+  <text x="600" y="290" text-anchor="middle" font-family="Outfit, Pretendard, sans-serif" font-size="86" font-weight="700" fill="#0f172a">O&apos;s Dan</text>
+  <text x="600" y="365" text-anchor="middle" font-family="Pretendard, Noto Sans KR, sans-serif" font-size="34" font-weight="600" fill="#0284c7">오늘의 단어와 주제 스펙트럼</text>
+  <path d="M50 495 C 410 605, 780 435, 1160 555" stroke="#bae6fd" stroke-width="18" stroke-linecap="round"/>
+  <path d="M45 535 C 360 430, 760 605, 1145 495" stroke="#0ea5e9" stroke-width="10" stroke-linecap="round"/>
+  <path d="M75 560 C 460 475, 830 575, 1125 475" stroke="#1e40af" stroke-width="5" stroke-linecap="round"/>
+</svg>

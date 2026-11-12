@@ -1,7 +1,7 @@
 /**
  * O's Dan — Daily & Spectrum Word Engine
- * - O's Dan 주제: 매일의 날짜(YYYY-MM-DD)를 고유 시드로 삼아 '오늘의 단어'를 고정 표시
- * - 그 외 주제(전체 무작위 ~ 시스템·패러다임): 해당 주제에 맞는 새로운 단어·주제를 자유롭게 추출
+ * - O's Dan 주제: 배포일(LAUNCH)로부터 지난 날 수에 따라 고정 순서 배열에서 '오늘의 단어'를 선택 (새 단어가 끝에 추가되어도 과거·오늘의 단어 불변)
+ * - 그 외 주제(전체 무작위 ~ 시스템·패러다임): 큐에 실시간 카드가 있으면 약 70%(백과는 우선) 비율로 즉시 꺼내고, 비어 있으면 기다리지 않고 내장 카드를 반환
  */
 class DailyEditionEngine {
   constructor() {
@@ -22,59 +22,36 @@ class DailyEditionEngine {
     return `${y}. ${m}. ${d}`;
   }
 
-  hashDateString(str) {
-    let h = 2166136261 >>> 0;
-    for (let i = 0; i < str.length; i++) {
-      h ^= str.charCodeAt(i);
-      h = Math.imul(h, 16777619);
-    }
-    return h >>> 0;
-  }
-
-  createSeededRng(seed) {
-    let a = seed >>> 0;
-    return function () {
-      let t = (a += 0x6d2b79f5);
-      t = Math.imul(t ^ (t >>> 15), t | 1);
-      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-  }
-
   getAllLocalEntries() {
+    if (window.OMNI_LEXICON.ALL_ENTRIES) {
+      return window.OMNI_LEXICON.ALL_ENTRIES;
+    }
     return [
-      ...window.OMNI_LEXICON.CURATED_ENTRIES,
-      ...window.OMNI_LEXICON.INSTANT_WORD_BANK
+      ...(window.OMNI_LEXICON.CURATED_ENTRIES || []),
+      ...(window.OMNI_LEXICON.INSTANT_WORD_BANK || [])
     ];
   }
 
   /**
    * O's Dan 주제 전용: 오늘의 날짜에 해당하는 단 하나의 '오늘의 단어' 반환
-   * - 연도별 고유 시드로 전체 단어장을 완벽히 섞은(Fisher-Yates Shuffle) 뒤,
-   *   그해의 날짜 순서(Day of Year)에 따라 하루에 하나씩 꺼내므로 매일 겹치지 않고 새로운 단어가 나옵니다.
+   * - 배포일(2026-11-12)을 0번 인덱스로 고정하고, 새 단어는 항상 배열 끝에만 추가하여
+   *   배열 길이만큼의 날 동안 중복이 없으며 단어를 추가해도 과거·오늘의 단어가 바뀌지 않습니다.
    */
-  getOsDanTodayPick(dateObj = new Date()) {
-    const dateKey = this.formatDateKey(dateObj);
-    const dotDate = this.formatDotDate(dateObj);
-    const allEntries = [...this.getAllLocalEntries()];
+  getOsDanTodayPick(d = new Date()) {
+    const dateKey = this.formatDateKey(d);
+    const dotDate = this.formatDotDate(d);
+    const all = this.getAllLocalEntries();
 
-    const year = dateObj.getFullYear();
-    const startOfYear = new Date(year, 0, 0);
-    const dayOfYear = Math.floor((dateObj - startOfYear) / 86400000);
-
-    // 해당 연도의 시드로 단어장 전체를 결정론적으로 셔플
-    const rng = this.createSeededRng(this.hashDateString(`OSDAN-YEAR-${year}`));
-    for (let i = allEntries.length - 1; i > 0; i--) {
-      const j = Math.floor(rng() * (i + 1));
-      [allEntries[i], allEntries[j]] = [allEntries[j], allEntries[i]];
-    }
-
-    const index = dayOfYear % allEntries.length;
+    const LAUNCH = Date.UTC(2026, 10, 12); // 배포일에 0번 단어. 새 단어는 배열 끝에만 추가
+    const day = Math.floor(
+      (Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - LAUNCH) / 86400000
+    );
+    const entry = all[((day % all.length) + all.length) % all.length];
 
     return {
       dateKey,
       dotDate,
-      entry: allEntries[index]
+      entry
     };
   }
 
@@ -86,43 +63,22 @@ class DailyEditionEngine {
     const now = new Date();
     const dotDate = this.formatDotDate(now);
 
-    // 1. 실시간 백과사전(wiki) 주제인 경우
-    if (spectrum === 'wiki' && window.wikiService) {
-      let wikiEntry = window.wikiService.popWikiEntry();
-      if (!wikiEntry) {
-        await window.wikiService.refillWikiQueue();
-        wikiEntry = window.wikiService.popWikiEntry();
-      }
-      if (wikiEntry) {
-        return { dotDate, entry: wikiEntry };
-      }
-    }
+    if (window.wikiService) {
+      window.wikiService.ensureSpectrum(spectrum);
 
-    // 2. 전체 무작위(all)일 때 일정 확률로 실시간 위키백과/위키낱말사전 결합
-    if (spectrum === 'all' && window.wikiService) {
-      const roll = Math.random();
-      if (roll < 0.3) {
-        const wikiEntry = window.wikiService.popWikiEntry();
-        if (wikiEntry && wikiEntry.title !== currentTitle) {
-          return { dotDate, entry: wikiEntry };
+      const useLive = spectrum === 'wiki' ? true : Math.random() < 0.7;
+      if (useLive) {
+        let liveEntry = window.wikiService.popLiveEntry(spectrum);
+        if (liveEntry && liveEntry.title === currentTitle) {
+          liveEntry = window.wikiService.popLiveEntry(spectrum) || liveEntry;
         }
-      } else if (roll < 0.42) {
-        const wiktEntry = window.wikiService.popWiktionaryEntry();
-        if (wiktEntry && wiktEntry.title !== currentTitle) {
-          return { dotDate, entry: wiktEntry };
+        if (liveEntry && liveEntry.title !== currentTitle) {
+          return { dotDate, entry: liveEntry };
         }
       }
     }
 
-    // 3. 단어·낱말(word)일 때 일정 확률로 실시간 위키낱말사전 결합
-    if (spectrum === 'word' && window.wikiService && Math.random() < 0.25) {
-      const wiktEntry = window.wikiService.popWiktionaryEntry();
-      if (wiktEntry && wiktEntry.title !== currentTitle) {
-        return { dotDate, entry: wiktEntry };
-      }
-    }
-
-    // 4. 내장 풀에서 스펙트럼에 맞게 필터링하여 무작위 추출
+    // 내장 풀에서 스펙트럼에 맞게 필터링하여 무작위 추출 (큐가 비어 있어도 기다리지 않고 즉시 반환)
     const allEntries = this.getAllLocalEntries();
     let pool =
       spectrum === 'all' || spectrum === 'wiki'

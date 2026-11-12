@@ -17,6 +17,7 @@
   let currentSpectrum = 'osdan';
   let currentEntry = null;
   let lastOsDanDateKey = '';
+  let busy = false;
 
   // 스펙트럼별 이전 단어 기록 스택 (< 버튼 탐색 지원)
   const historyStacks = {
@@ -64,7 +65,21 @@
 
     if (dateEl) dateEl.textContent = dotDate;
     if (specPillEl) specPillEl.textContent = SPECTRUM_LABELS[spectrum] || SPECTRUM_LABELS.osdan;
-    if (catEl) catEl.textContent = entry.domain || '오늘의 단어';
+    if (catEl) {
+      if (entry.isLiveWiki && entry.wikiUrl) {
+        catEl.setAttribute('href', entry.wikiUrl);
+        catEl.setAttribute('target', '_blank');
+        catEl.setAttribute('rel', 'noopener noreferrer');
+        catEl.textContent = entry.wikiUrl.includes('wiktionary.org')
+          ? '위키낱말사전 · CC BY-SA 4.0'
+          : '위키백과 · CC BY-SA 4.0';
+      } else {
+        catEl.removeAttribute('href');
+        catEl.removeAttribute('target');
+        catEl.removeAttribute('rel');
+        catEl.textContent = entry.domain || '오늘의 단어';
+      }
+    }
     if (titleEl) titleEl.textContent = entry.title;
     if (subEl) subEl.textContent = entry.subtitle || '';
     if (descEl) descEl.textContent = entry.summary;
@@ -87,77 +102,62 @@
   }
 
   async function selectSpectrum(spectrum, withTransition = true) {
-    currentSpectrum = spectrum;
+    if (busy) return;
+    busy = true;
+    try {
+      currentSpectrum = spectrum;
 
-    // 햄버거 메뉴 내 활성 상태 표시 업데이트
-    document.querySelectorAll('.topic-link').forEach((link) => {
-      link.classList.toggle('active', link.getAttribute('data-spectrum') === spectrum);
-    });
-
-    // O's Dan 외의 주제에서만 좌우 < > 화살표 표시
-    updateArrowVisibility(spectrum);
-
-    await runWithTransition(withTransition, async () => {
-      if (spectrum === 'osdan') {
-        const todayData = window.dailyEngine.getOsDanTodayPick(new Date());
-        lastOsDanDateKey = todayData.dateKey;
-        renderCardContent({
-          dotDate: todayData.dotDate,
-          spectrum: 'osdan',
-          entry: todayData.entry
-        });
-      } else {
-        const drawn = await window.dailyEngine.drawRandomBySpectrum(
-          spectrum,
-          currentEntry ? currentEntry.title : ''
-        );
-        renderCardContent({
-          dotDate: drawn.dotDate,
-          spectrum,
-          entry: drawn.entry
-        });
+      if (spectrum !== 'osdan' && window.wikiService) {
+        window.wikiService.ensureSpectrum(spectrum);
       }
-    });
+
+      // 햄버거 메뉴 내 활성 상태 표시 업데이트
+      document.querySelectorAll('.topic-link').forEach((link) => {
+        link.classList.toggle('active', link.getAttribute('data-spectrum') === spectrum);
+      });
+
+      // O's Dan 외의 주제에서만 좌우 < > 화살표 표시
+      updateArrowVisibility(spectrum);
+
+      await runWithTransition(withTransition, async () => {
+        if (spectrum === 'osdan') {
+          const todayData = window.dailyEngine.getOsDanTodayPick(new Date());
+          lastOsDanDateKey = todayData.dateKey;
+          renderCardContent({
+            dotDate: todayData.dotDate,
+            spectrum: 'osdan',
+            entry: todayData.entry
+          });
+        } else {
+          const drawn = await window.dailyEngine.drawRandomBySpectrum(
+            spectrum,
+            currentEntry ? currentEntry.title : ''
+          );
+          renderCardContent({
+            dotDate: drawn.dotDate,
+            spectrum,
+            entry: drawn.entry
+          });
+        }
+      });
+    } finally {
+      busy = false;
+    }
   }
 
   // 오른쪽 화살표(>) 클릭: 현재 주제에서 새로운 단어·주제 추출
   async function handleNextWord() {
-    if (currentSpectrum === 'osdan') return;
-
-    if (currentEntry && historyStacks[currentSpectrum]) {
-      historyStacks[currentSpectrum].push(currentEntry);
-      if (historyStacks[currentSpectrum].length > 40) {
-        historyStacks[currentSpectrum].shift();
+    if (currentSpectrum === 'osdan' || busy) return;
+    busy = true;
+    try {
+      if (currentEntry && historyStacks[currentSpectrum]) {
+        historyStacks[currentSpectrum].push(currentEntry);
+        if (historyStacks[currentSpectrum].length > 40) {
+          historyStacks[currentSpectrum].shift();
+        }
       }
-    }
 
-    await runWithTransition(true, async () => {
-      const drawn = await window.dailyEngine.drawRandomBySpectrum(
-        currentSpectrum,
-        currentEntry ? currentEntry.title : ''
-      );
-      renderCardContent({
-        dotDate: drawn.dotDate,
-        spectrum: currentSpectrum,
-        entry: drawn.entry
-      });
-    });
-  }
-
-  // 왼쪽 화살표(<) 클릭: 이전 기록이 있으면 이전 단어, 없으면 새로운 단어 추출
-  async function handlePrevWord() {
-    if (currentSpectrum === 'osdan') return;
-
-    const stack = historyStacks[currentSpectrum];
-    await runWithTransition(true, async () => {
-      if (stack && stack.length > 0) {
-        const prevEntry = stack.pop();
-        renderCardContent({
-          dotDate: window.dailyEngine.formatDotDate(new Date()),
-          spectrum: currentSpectrum,
-          entry: prevEntry
-        });
-      } else {
+      await runWithTransition(true, async () => {
         const drawn = await window.dailyEngine.drawRandomBySpectrum(
           currentSpectrum,
           currentEntry ? currentEntry.title : ''
@@ -167,16 +167,45 @@
           spectrum: currentSpectrum,
           entry: drawn.entry
         });
-      }
-    });
+      });
+    } finally {
+      busy = false;
+    }
+  }
+
+  // 왼쪽 화살표(<) 클릭: 이전 기록이 있으면 이전 단어, 없으면 새로운 단어 추출
+  async function handlePrevWord() {
+    if (currentSpectrum === 'osdan' || busy) return;
+    busy = true;
+    try {
+      const stack = historyStacks[currentSpectrum];
+      await runWithTransition(true, async () => {
+        if (stack && stack.length > 0) {
+          const prevEntry = stack.pop();
+          renderCardContent({
+            dotDate: window.dailyEngine.formatDotDate(new Date()),
+            spectrum: currentSpectrum,
+            entry: prevEntry
+          });
+        } else {
+          const drawn = await window.dailyEngine.drawRandomBySpectrum(
+            currentSpectrum,
+            currentEntry ? currentEntry.title : ''
+          );
+          renderCardContent({
+            dotDate: drawn.dotDate,
+            spectrum: currentSpectrum,
+            entry: drawn.entry
+          });
+        }
+      });
+    } finally {
+      busy = false;
+    }
   }
 
   document.addEventListener('DOMContentLoaded', () => {
-    if (window.wikiService) {
-      window.wikiService.init();
-    }
-
-    // 초기 화면: O's Dan (오늘의 단어)
+    // 초기 화면: O's Dan (오늘의 단어) — 오늘의 단어만 보는 방문자에게는 실시간 위키 요청을 보내지 않음
     selectSpectrum('osdan', false);
 
     // 햄버거 버튼 클릭
